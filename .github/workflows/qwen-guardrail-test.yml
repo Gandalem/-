@@ -7,12 +7,6 @@ on:
         description: "Number of cases (1-48, balanced by category)"
         required: false
         default: "48"
-  push:
-    paths:
-      - "guard.py"
-      - "tests/evaluate_guard.py"
-      - "test_guard.py"
-      - ".github/workflows/qwen-guardrail-test.yml"
 
 permissions:
   contents: read

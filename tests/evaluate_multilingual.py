@@ -1,67 +1,59 @@
-"""Comparison of original and multilingual-aware guard policies on 40 tri-lingual prompts.
-Deliberately serial; Qwen calls paced 5s apart. Claude disabled.
-Do not treat authored labels as competition ground truth.
+"""Evaluate the active guard.py against 40 English/Korean/Chinese test cases.
+Only one classifier is evaluated. No API keys or prompts are written to reports.
 """
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
-
-import evaluate_guard as core
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
+sys.path.insert(0, str(ROOT))
 import guard
-import guard_multilingual_v2
+
+import evaluate_guard as core
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--limit", type=int, default=40)
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=40)
+    args = parser.parse_args()
     os.environ["CLAUDE_ENABLED"] = "0"
     if not os.getenv("NCP_API_KEY"):
-        print("Missing NCP_API secret; cannot perform live Qwen test", flush=True)
+        print("ERROR: NCP_API secret not available", flush=True)
         return 2
 
-    cases_data = json.loads((HERE / "multilingual_cases.json").read_text(encoding="utf-8"))["cases"]
-    cases = [(x["id"], x["category"], x["expected"], x["prompt"]) for x in cases_data]
+    records = json.loads((HERE / "multilingual_cases.json").read_text(encoding="utf-8"))["cases"]
+    cases = [(x["id"], x["category"], x["expected"], x["prompt"]) for x in records]
     selected = cases[:max(1, min(args.limit, len(cases)))]
-    summary = []
-    has_failures = False
 
-    for version, module, out_path in [
-        ("v1-original", guard, "results/multilingual_v1.json"),
-        ("v2-quotation-aware", guard_multilingual_v2, "results/multilingual_v2.json"),
-    ]:
-        print(f"\n======== {version}: {len(selected)} prompts, NCP 30s, Claude off ========", flush=True)
-        core.guard = module
-        rows = core.evaluate(selected, require_live=True)
-        failures = core.report(rows, len(selected), out_path)
-        has_failures |= failures > 0 or len(rows) != len(selected)
-        abr_den = sum(x["expected"] == "BLOCK" for x in rows)
-        bar_den = sum(x["expected"] == "ALLOW" for x in rows)
-        abr = sum(x["expected"] == "BLOCK" and x["correct"] for x in rows) / abr_den if abr_den else 0
-        bar = sum(x["expected"] == "ALLOW" and x["correct"] for x in rows) / bar_den if bar_den else 0
-        h = 2 * abr * bar / (abr + bar) if abr + bar else 0
-        summary.append({"version": version, "abr": round(abr, 4), "bar": round(bar, 4),
-                        "harmonic_mean": round(h, 4), "api_failures": failures,
-                        "wrong_ids": [r["id"] for r in rows if not r["correct"]]})
+    print(f"Evaluating current guard.py: {len(selected)} prompts; Claude off; NCP timeout 30s", flush=True)
+    core.guard = guard
+    rows = core.evaluate(selected, require_live=True)
+    api_failures = core.report(rows, len(selected), "results/multilingual_guard.json")
 
-    Path("results").mkdir(exist_ok=True)
-    Path("results/multilingual_comparison.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    allow_rows = [r for r in rows if r["expected"] == "ALLOW"]
+    block_rows = [r for r in rows if r["expected"] == "BLOCK"]
+    bar = sum(r["correct"] for r in allow_rows) / len(allow_rows) if allow_rows else 0.
+    abr = sum(r["correct"] for r in block_rows) / len(block_rows) if block_rows else 0.
+    harmonic = 2 * abr * bar / (abr + bar) if abr + bar else 0.
+    result = {
+        "model": "guard.py",
+        "cases": len(rows),
+        "abr": round(abr, 4),
+        "bar": round(bar, 4),
+        "harmonic_mean": round(harmonic, 4),
+        "api_failures": api_failures,
+        "wrong_ids": [r["id"] for r in rows if not r["correct"]],
+        "note": "Self-authored cases, not official competition scores"
+    }
+    Path("results/multilingual_summary.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print("\n=== MULTILINGUAL V1 vs V2 ===", flush=True)
-    for item in summary:
-        print(json.dumps(item, ensure_ascii=False), flush=True)
-    if len(summary) > 1:
-        print("Harmony delta (v2-v1):", round(100*(summary[1]["harmonic_mean"]-summary[0]["harmonic_mean"]),2), "points", flush=True)
-    return 2 if has_failures else 0
+    print("LATEST GUARD RESULT: " + json.dumps(result, ensure_ascii=False), flush=True)
+    return 2 if api_failures or len(rows) != len(selected) else 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,4 +1,4 @@
-name: Qwen Multilingual V1-V2 Comparison
+name: Qwen Multilingual Guard Test
 
 on:
   workflow_dispatch:
@@ -9,18 +9,18 @@ on:
         default: "40"
   push:
     paths:
+      - "guard.py"
       - "tests/multilingual_cases.json"
       - "tests/evaluate_multilingual.py"
-      - "guard_multilingual_v2.py"
       - ".github/workflows/qwen-multilingual-test.yml"
 
 permissions:
   contents: read
 
 jobs:
-  compare:
+  evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     env:
       NCP_API_KEY: ${{ secrets.NCP_API }}
       CLAUDE_ENABLED: "0"
@@ -32,25 +32,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Python
+      - name: Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Validate unit tests
         run: python -m unittest -v test_guard.py
-      - name: Evaluate mixed English Korean Chinese prompts with v1 and v2
+      - name: Evaluate current guard.py on 40 multilingual prompts
         env:
           CASE_LIMIT: ${{ github.event.inputs.case_limit || '40' }}
         run: |
           set -euo pipefail
           python tests/evaluate_multilingual.py --limit "$CASE_LIMIT"
-      - name: Upload comparison reports
+      - name: Upload evaluation reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: multilingual-v1-v2-comparison
+          name: multilingual-guard-results
           path: |
-            results/multilingual_v1.json
-            results/multilingual_v2.json
-            results/multilingual_comparison.json
+            results/multilingual_guard.json
+            results/multilingual_summary.json
           if-no-files-found: warn
