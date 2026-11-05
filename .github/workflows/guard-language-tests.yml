@@ -1,0 +1,84 @@
+name: Guard language-specific evaluation
+
+on:
+  push:
+    paths:
+      - "tests/eval_core.py"
+      - "tests/test_english.py"
+      - "tests/test_chinese.py"
+      - "tests/test_korean.py"
+      - ".github/workflows/guard-language-tests.yml"
+  workflow_dispatch:
+    inputs:
+      language:
+        description: "Language test"
+        type: choice
+        required: true
+        default: english
+        options:
+          - english
+          - chinese
+          - korean
+      limit:
+        description: "Cases (1 to 30)"
+        type: string
+        default: "30"
+      models:
+        description: "Model IDs, comma-separated"
+        type: string
+        default: "prompt_guard,qwen3guard,granite_guardian,qwen_primary"
+      parallel_trials:
+        description: "Serial-vs-parallel repetitions (0 to 4)"
+        type: string
+        default: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-datasets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate English Chinese and Korean data
+        run: |
+          python tests/test_english.py --check
+          python tests/test_chinese.py --check
+          python tests/test_korean.py --check
+
+  run-language:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-datasets
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NCP_API_KEY: ${{ secrets.NCP_API }}
+      NCP_API_V2: ${{ secrets.NCP_API_V2 }}
+      NCP_GUARD_TIMEOUT: "60"
+      CLAUDE_ENABLED: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Benchmark selected language
+        shell: bash
+        env:
+          TARGET_LANGUAGE: ${{ inputs.language }}
+          CASE_LIMIT: ${{ inputs.limit }}
+          TARGET_MODELS: ${{ inputs.models }}
+          PARALLEL_TRIALS: ${{ inputs.parallel_trials }}
+        run: |
+          set -euo pipefail
+          python "tests/test_${TARGET_LANGUAGE}.py" --limit "$CASE_LIMIT" --models "$TARGET_MODELS" --parallel-trials "$PARALLEL_TRIALS"
+      - name: Save per-language report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guard-language-${{ inputs.language }}
+          path: results/guard_*.json
+          if-no-files-found: warn
