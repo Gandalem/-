@@ -32,3 +32,7 @@ The runner obtains GitHub Secrets `NCP_API` (Qwen primary) and `NCP_API_V2` (Pro
 JSON reports include model decisions, errors, ABR, BAR, harmonic mean and latency statistics. Parallel tests compare concurrent vs sequential calls to the three auxiliary Guard services. Default Actions push runs offline dataset validation only to avoid API charges.
 
 Existing v2 guard classifier has known errors on false positives in analysis tasks and a long-context hidden injection; these new language-specific cases provide independent robustness checks.
+
+## Architecture and ensemble evaluation
+
+See [4-model architecture and validation plan](docs/guard-architecture.md). The language-specific runner evaluates seven fusion strategies on stored model outputs without extra model calls. None of the ensemble rules is deployed into `guard.py` until actual accuracy and long-input robustness are established.

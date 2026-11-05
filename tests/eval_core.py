@@ -179,6 +179,111 @@ def compare_parallel(cases, repeats):
             "parallel_mean": round(statistics.mean(x["parallel_seconds"] for x in records), 3) if records else None}
 
 
+
+FUSION_POLICIES = (
+    "qwen_only",
+    "any_block",
+    "guard_majority",
+    "four_majority_tie_qwen",
+    "qwen_or_two_guards",
+    "qwen_and_one_guard",
+    "four_unanimous_block",
+)
+
+
+def fuse(labels, policy):
+    """Evaluate candidate voting policies; these are NOT production decisions.
+
+    None means required model evidence is unavailable. Never silently treat
+    network errors as ALLOW, even when a vote might seem decisive.
+    """
+    q = labels.get("qwen_primary")
+    guards = [labels.get(k) for k in ROUTES]
+    if policy == "qwen_only":
+        return q if q in ("ALLOW", "BLOCK") else None
+    if any(value not in ("ALLOW", "BLOCK") for value in [q, *guards]):
+        return None
+    guard_blocks = guards.count("BLOCK")
+    total_blocks = guard_blocks + (q == "BLOCK")
+    if policy == "any_block":
+        return "BLOCK" if total_blocks > 0 else "ALLOW"
+    if policy == "guard_majority":
+        return "BLOCK" if guard_blocks >= 2 else "ALLOW"
+    if policy == "four_majority_tie_qwen":
+        if total_blocks > 2:
+            return "BLOCK"
+        if total_blocks < 2:
+            return "ALLOW"
+        return q  # Explicit 2:2 tie behavior; no hidden bias.
+    if policy == "qwen_or_two_guards":
+        return "BLOCK" if q == "BLOCK" or guard_blocks >= 2 else "ALLOW"
+    if policy == "qwen_and_one_guard":
+        return "BLOCK" if q == "BLOCK" and guard_blocks >= 1 else "ALLOW"
+    if policy == "four_unanimous_block":
+        return "BLOCK" if total_blocks == 4 else "ALLOW"
+    raise ValueError("Unknown fusion policy: " + policy)
+
+
+def fusion_selfcheck():
+    """Small offline truth-table coverage without adding a fourth language test."""
+    all_allow = {m: "ALLOW" for m in ALL_MODELS}
+    all_block = {m: "BLOCK" for m in ALL_MODELS}
+    split = {**all_allow, "qwen_primary": "BLOCK", "prompt_guard": "BLOCK"}
+    guards_only = {**all_block, "qwen_primary": "ALLOW"}
+    missing = {**all_block, "granite_guardian": None}
+    for name in FUSION_POLICIES:
+        assert fuse(all_allow, name) == "ALLOW", name
+        assert fuse(all_block, name) == "BLOCK", name
+        assert fuse(missing, name) is None or name == "qwen_only", name
+    assert fuse(split, "four_majority_tie_qwen") == "BLOCK"
+    assert fuse(guards_only, "four_majority_tie_qwen") == "BLOCK"
+    assert fuse(guards_only, "qwen_and_one_guard") == "ALLOW"
+    assert fuse(guards_only, "qwen_or_two_guards") == "BLOCK"
+    assert fuse({**all_allow, "qwen_primary": None}, "qwen_only") is None
+
+
+def compare_fusion(results, cases):
+    """Replay recorded model predictions; no additional calls or dataset leakage."""
+    if not all(model in results for model in ALL_MODELS):
+        return {}
+    per_model = {
+        name: {row["id"]: row for row in results[name]["cases"]}
+        for name in ALL_MODELS
+    }
+    fused = {}
+    for policy in FUSION_POLICIES:
+        rows = []
+        for case in cases:
+            case_id = case["id"]
+            evidence = {m: per_model[m][case_id] for m in ALL_MODELS}
+            labels = {m: evidence[m]["actual"] for m in ALL_MODELS}
+            decision = fuse(labels, policy)
+            latency_lower_bound = max(float(evidence[m]["seconds"]) for m in ALL_MODELS)
+            rows.append({
+                "id": case_id, "expected": case["expected"], "actual": decision,
+                "seconds": latency_lower_bound,
+                "error": None if decision else "MISSING_MODEL_RESULT",
+            })
+        fused[policy] = {"summary": metrics(rows)}
+        s = fused[policy]["summary"]
+        print(
+            "FUSION SUMMARY", policy,
+            f"{s['correct']}/{s['total']}",
+            f"ABR={s['abr']:.3f}",
+            f"BAR={s['bar']:.3f}",
+            f"H={s['harmonic_mean']:.3f}",
+            f"errors={s['api_failures']}",
+            flush=True,
+        )
+    disagreements = []
+    for case in cases:
+        decisions = {m: per_model[m][case["id"]]["actual"] for m in ALL_MODELS}
+        valid = [v for v in decisions.values() if v in ("ALLOW", "BLOCK")]
+        if len(set(valid)) > 1:
+            disagreements.append({"id": case["id"], "expected": case["expected"], "models": decisions})
+    return {"policies": fused, "disagreements": disagreements,
+            "caution": "Comparative replay on self-authored labels; NOT a validated deployment policy."}
+
 def main(language, cases):
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -186,6 +291,7 @@ def main(language, cases):
     parser.add_argument("--models", default=",".join(ALL_MODELS))
     parser.add_argument("--parallel-trials", type=int, default=0)
     args = parser.parse_args()
+    fusion_selfcheck()
     print("DATASET", json.dumps(validate(cases, language), ensure_ascii=False), flush=True)
     if args.check:
         return 0
@@ -201,10 +307,11 @@ def main(language, cases):
     os.environ["CLAUDE_ENABLED"] = "0"
     cases = cases[:max(1, min(30, args.limit))]
     results = benchmark(language, cases, models)
+    fusion = compare_fusion(results, cases)
     parallels = compare_parallel(cases, max(0, min(4, args.parallel_trials))) if all(m in models for m in ROUTES) and args.parallel_trials else None
     Path("results").mkdir(exist_ok=True)
     path = Path("results") / ("guard_" + language + ".json")
-    path.write_text(json.dumps({"language": language, "models": results, "parallel": parallels,
+    path.write_text(json.dumps({"language": language, "models": results, "fusion": fusion, "parallel": parallels,
                "note": "Self-authored labels, not an official competition score. API failures count as incorrect."},
                ensure_ascii=False, indent=2), encoding="utf-8")
     step_file = os.getenv("GITHUB_STEP_SUMMARY")
@@ -217,6 +324,18 @@ def main(language, cases):
             lines.append(f"| {m} | {s['correct']}/{s['total']} | {s['abr']*100:.1f}% | "
                          f"{s['bar']*100:.1f}% | {s['harmonic_mean']*100:.1f}% | "
                          f"{s['p95_seconds']} | {s['api_failures']} |")
+        if fusion:
+            lines += ["", "### Experimental fusion comparisons", "",
+                      "| Policy | Correct | ABR | BAR | Harmonic | Errors |",
+                      "|---|---:|---:|---:|---:|---:|"]
+            for name, item in fusion["policies"].items():
+                score = item["summary"]
+                lines.append(
+                    f"| {name} | {score['correct']}/{score['total']} | "
+                    f"{score['abr']*100:.1f}% | {score['bar']*100:.1f}% | "
+                    f"{score['harmonic_mean']*100:.1f}% | {score['api_failures']} |"
+                )
+            lines += ["", f"Disagreements: {len(fusion['disagreements'])}"]
         with open(step_file, "a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
     print("REPORT", str(path), flush=True)
