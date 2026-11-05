@@ -20,13 +20,13 @@ permissions:
 jobs:
   qwen-only-evaluation:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       NCP_API_KEY: ${{ secrets.NCP_API }}
       CLAUDE_ENABLED: "0"
       NCP_BASE_URL: "https://223.130.136.240/v1"
       NCP_MODEL: "Qwen/Qwen3.8-27B-FP8"
-      NCP_TIMEOUT: "8"
+      NCP_TIMEOUT: "30"
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Checkout source
