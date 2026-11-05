@@ -106,7 +106,14 @@ def diagnostic():
 
 def evaluate(cases, require_live):
     rows = []
+    spacing = max(0., float(os.getenv("NCP_REQUEST_SPACING_SECONDS", "5")))
+    previous_started = None
     for i, (case_id, group, expected, prompt) in enumerate(cases, 1):
+        if previous_started is not None:
+            remaining = spacing - (time.monotonic() - previous_started)
+            if remaining > 0:
+                time.sleep(remaining)
+        previous_started = time.monotonic()
         observed = []
         events = []
         real_qwen = guard._qwen
