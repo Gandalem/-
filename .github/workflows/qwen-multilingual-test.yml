@@ -1,0 +1,56 @@
+name: Qwen Multilingual V1-V2 Comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      case_limit:
+        description: "Number of mixed Chinese/Korean/English test cases (1-40)"
+        required: false
+        default: "40"
+  push:
+    paths:
+      - "tests/multilingual_cases.json"
+      - "tests/evaluate_multilingual.py"
+      - "guard_multilingual_v2.py"
+      - ".github/workflows/qwen-multilingual-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NCP_API_KEY: ${{ secrets.NCP_API }}
+      CLAUDE_ENABLED: "0"
+      NCP_BASE_URL: "https://223.130.136.240/v1"
+      NCP_MODEL: "Qwen/Qwen3.8-27B-FP8"
+      NCP_TIMEOUT: "30"
+      NCP_REQUEST_SPACING_SECONDS: "5"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate unit tests
+        run: python -m unittest -v test_guard.py
+      - name: Evaluate mixed English Korean Chinese prompts with v1 and v2
+        env:
+          CASE_LIMIT: ${{ github.event.inputs.case_limit || '40' }}
+        run: |
+          set -euo pipefail
+          python tests/evaluate_multilingual.py --limit "$CASE_LIMIT"
+      - name: Upload comparison reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multilingual-v1-v2-comparison
+          path: |
+            results/multilingual_v1.json
+            results/multilingual_v2.json
+            results/multilingual_comparison.json
+          if-no-files-found: warn
