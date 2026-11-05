@@ -13,8 +13,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(ROOT))
-from tests.evaluate_guard import CASES as BASIC_CASES
+from evaluate_guard import CASES as BASIC_CASES
 
 BASE = os.getenv("NCP_GUARD_BASE", "https://223.130.136.240").rstrip("/")
 SECRET = os.getenv("NCP_API_V2", "")
