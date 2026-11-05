@@ -159,13 +159,13 @@ def _qwen(text, sig):
     headers = {"Authorization": "Bearer " + key}
     try:
         try:
-            answer = _post(NCP_BASE + "/chat/completions", headers, data, _timeout("NCP_TIMEOUT", 8))
+            answer = _post(NCP_BASE + "/chat/completions", headers, data, _timeout("NCP_TIMEOUT", 30))
         except urllib.error.HTTPError as e:
             if e.code not in (400, 422):
                 return None
             data.pop("structured_outputs", None)
             data.pop("chat_template_kwargs", None)
-            answer = _post(NCP_BASE + "/chat/completions", headers, data, _timeout("NCP_TIMEOUT", 8))
+            answer = _post(NCP_BASE + "/chat/completions", headers, data, _timeout("NCP_TIMEOUT", 30))
         return _label(answer["choices"][0]["message"]["content"])
     except (ValueError, TypeError, KeyError, IndexError, OSError):
         return None
@@ -185,7 +185,7 @@ def _claude(text, sig):
         answer = _post(
             "https://api.anthropic.com/v1/messages",
             {"x-api-key": key, "anthropic-version": "2023-06-01"},
-            body, _timeout("CLAUDE_TIMEOUT", 6)
+            body, _timeout("CLAUDE_TIMEOUT", 30)
         )
         value = "".join(x.get("text", "") for x in answer["content"] if x.get("type") == "text")
         return _label(value)
