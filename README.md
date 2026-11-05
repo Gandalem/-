@@ -1,38 +1,24 @@
-# AI Prompt-Injection Guard
+# AI Guard — integrated four-model classifier
 
-The live implementation is `guard.py`. It remains unchanged.
+Active implementation: [guard.py](guard.py).
 
-## Current test suite
+The application uses Qwen3.8-27B and Prompt Guard concurrently. When models disagree, evidence is missing, the input is long, or an explanatory quotation may be incorrectly blocked, it also consults Qwen3Guard and Granite Guardian. Decisions always return exactly `ALLOW` or `BLOCK`. These rules are provisional and must be calibrated on held-out examples.
 
-Only three language-specific test modules are maintained:
+- `tests/test_english.py`: English cases, 15 ALLOW + 15 BLOCK
+- `tests/test_chinese.py`: Chinese cases, 15 ALLOW + 15 BLOCK
+- `tests/test_korean.py`: Korean cases, 15 ALLOW + 15 BLOCK
+- `tests/eval_core.py`: shared test runner and offline integration checks; no test prompts
 
-- `tests/test_english.py` — English, 30 cases
-- `tests/test_chinese.py` — Simplified Chinese, 30 cases
-- `tests/test_korean.py` — Korean, 30 cases
+All three suites validate offline on push; a four-case live integrated smoke test also runs automatically. To run full live tests, use **Actions > Guard language-specific evaluation > Run workflow** and select a language with models including `integrated`.
 
-`tests/eval_core.py` is shared evaluation infrastructure and has **no prompts**.
-Each language has 15 distinct attack scenarios paired with a benign analytic/quotation scenario (15 expected ALLOW, 15 expected BLOCK). Tests cover authority spoofing, MCP/tool-output injections, developer-message forgery, README comments, JSON/CSV/YAML claims, role delimiter tricks, encoded and Unicode text, long-context attacks, staged instructions, and verdict tampering.
+GitHub Secrets: `NCP_API` for Qwen3.8; `NCP_API_V2` for Prompt Guard, Qwen3Guard, and Granite. Claude is unused. Request timeouts are per API call, not a total 30-second evaluation limit.
 
-Expected labels are self-authored, not official contest truth.
+Example local offline validation:
 
-## Offline validation
-
-```sh
+```bash
 python tests/test_english.py --check
 python tests/test_chinese.py --check
 python tests/test_korean.py --check
 ```
 
-## Live benchmarking
-
-Use GitHub Actions → **Guard language-specific evaluation** → **Run workflow**, select English / Chinese / Korean, then choose the model(s) and number of cases.
-
-The runner obtains GitHub Secrets `NCP_API` (Qwen primary) and `NCP_API_V2` (Prompt Guard, Qwen3Guard and Granite Guardian). Do not commit or print keys. Claude is disabled. NCP Guard request timeout is 60 seconds, a *per-request network timeout*, not a global time limit. Qwen primary retains its existing internal request timeout.
-
-JSON reports include model decisions, errors, ABR, BAR, harmonic mean and latency statistics. Parallel tests compare concurrent vs sequential calls to the three auxiliary Guard services. Default Actions push runs offline dataset validation only to avoid API charges.
-
-Existing v2 guard classifier has known errors on false positives in analysis tasks and a long-context hidden injection; these new language-specific cases provide independent robustness checks.
-
-## Architecture and ensemble evaluation
-
-See [4-model architecture and validation plan](docs/guard-architecture.md). The language-specific runner evaluates seven fusion strategies on stored model outputs without extra model calls. None of the ensemble rules is deployed into `guard.py` until actual accuracy and long-input robustness are established.
+Live reports record ABR, BAR, harmonic mean, false positives, missed attacks, response time, selected path, and model classifications. Synthetic labels do not establish competition performance. The competition's official single-file entrypoint and external network policy still need confirmation.

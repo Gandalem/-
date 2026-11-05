@@ -26,7 +26,7 @@ on:
       models:
         description: "Model IDs, comma-separated"
         type: string
-        default: "prompt_guard,qwen3guard,granite_guardian,qwen_primary"
+        default: "integrated,qwen_primary,prompt_guard,qwen3guard,granite_guardian"
       parallel_trials:
         description: "Serial-vs-parallel repetitions (0 to 4)"
         type: string
@@ -81,4 +81,31 @@ jobs:
         with:
           name: guard-language-${{ inputs.language }}
           path: results/guard_*.json
+          if-no-files-found: warn
+
+  smoke-integrated:
+    if: github.event_name == 'push'
+    needs: validate-datasets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NCP_API_KEY: ${{ secrets.NCP_API }}
+      NCP_API_V2: ${{ secrets.NCP_API_V2 }}
+      NCP_GUARD_TIMEOUT: "60"
+      NCP_TIMEOUT: "60"
+      CLAUDE_ENABLED: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Live integrated path smoke test (4 English cases)
+        run: python tests/test_english.py --limit 4 --models integrated --parallel-trials 0
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-smoke-results
+          path: results/guard_english.json
           if-no-files-found: warn
