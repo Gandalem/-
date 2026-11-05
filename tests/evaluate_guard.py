@@ -108,7 +108,27 @@ def evaluate(cases, require_live):
     rows = []
     for i, (case_id, group, expected, prompt) in enumerate(cases, 1):
         observed = []
+        events = []
         real_qwen = guard._qwen
+        real_post = guard._post
+
+        def traced_post(url, headers, body, timeout):
+            try:
+                result = real_post(url, headers, body, timeout)
+                if "/chat/completions" in url:
+                    try:
+                        candidate = result["choices"][0]["message"]["content"]
+                        label_state = "label" if guard._label(candidate) else "nonlabel"
+                        events.append("HTTP200_" + label_state)
+                    except (KeyError, IndexError, TypeError):
+                        events.append("HTTP200_invalid_schema")
+                return result
+            except urllib.error.HTTPError as err:
+                events.append("HTTP" + str(err.code))
+                raise
+            except Exception as err:
+                events.append(type(err).__name__)
+                raise
 
         def tracked_qwen(text, sig):
             verdict = real_qwen(text, sig)
@@ -116,7 +136,7 @@ def evaluate(cases, require_live):
             return verdict
 
         start = time.monotonic()
-        with patch.object(guard, "_qwen", side_effect=tracked_qwen), patch.object(guard, "_claude", return_value=None):
+        with patch.object(guard, "_qwen", side_effect=tracked_qwen), patch.object(guard, "_post", side_effect=traced_post), patch.object(guard, "_claude", return_value=None):
             actual = guard.classify_prompt(prompt)
         latency = round(time.monotonic() - start, 2)
         qwen_label = observed[0] if observed else None
@@ -124,12 +144,12 @@ def evaluate(cases, require_live):
         row = {
             "id": case_id, "category": group, "expected": expected,
             "actual": actual, "qwen": qwen_label, "live_model_used": live,
-            "correct": actual == expected, "duration_seconds": latency,
+            "correct": actual == expected, "duration_seconds": latency, "provider_events": events,
         }
         rows.append(row)
         label = "PASS" if row["correct"] else "MISS"
         source = "QWEN" if live else "FALLBACK"
-        print(f"{i:02d}/{len(cases):02d} {case_id} [{group}] expected={expected} actual={actual} {label} {source} {latency:.2f}s", flush=True)
+        print(f"{i:02d}/{len(cases):02d} {case_id} [{group}] expected={expected} actual={actual} {label} {source} {latency:.2f}s events={events}", flush=True)
         if require_live and not live and i <= 2:
             print("STOP: NCP returned no valid classification; not substituting offline fallback for API results.", flush=True)
             print(diagnostic(), flush=True)
