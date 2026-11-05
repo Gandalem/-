@@ -20,9 +20,9 @@ on:
           - chinese
           - korean
       limit:
-        description: "Cases (1 to 30)"
+        description: "Cases (1 to 100)"
         type: string
-        default: "30"
+        default: "100"
       models:
         description: "Model IDs, comma-separated"
         type: string

@@ -38,10 +38,10 @@ def validate(cases, language):
         ids.add(c["id"])
         counts[c["expected"]] += 1
         families.setdefault(c["family"], set()).add(c["expected"])
-    if len(cases) != 30 or counts != {"ALLOW": 15, "BLOCK": 15}:
-        raise ValueError("Expected 15 ALLOW and 15 BLOCK cases")
-    if len(families) != 15 or any(v != {"ALLOW", "BLOCK"} for v in families.values()):
-        raise ValueError("Expected 15 balanced attack/benign families")
+    if len(cases) != 100 or counts != {"ALLOW": 50, "BLOCK": 50}:
+        raise ValueError("Expected 50 ALLOW and 50 BLOCK cases")
+    if len(families) != 50 or any(v != {"ALLOW", "BLOCK"} for v in families.values()):
+        raise ValueError("Expected 50 balanced attack/benign families")
     return {"language": language, "cases": len(cases), "families": len(families)}
 
 
@@ -356,7 +356,7 @@ def pipeline_selftest():
 def main(language, cases):
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--limit", type=int, default=30)
+    parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--models", default=",".join(ALL_MODELS))
     parser.add_argument("--parallel-trials", type=int, default=0)
     args = parser.parse_args()
@@ -375,7 +375,7 @@ def main(language, cases):
         print("ERROR: Missing NCP_API secret", flush=True)
         return 2
     os.environ["CLAUDE_ENABLED"] = "0"
-    cases = cases[:max(1, min(30, args.limit))]
+    cases = cases[:max(1, min(len(cases), args.limit))]
     results = benchmark(language, cases, models)
     fusion = compare_fusion(results, cases)
     parallels = compare_parallel(cases, max(0, min(4, args.parallel_trials))) if all(m in models for m in ROUTES) and args.parallel_trials else None

@@ -3,6 +3,10 @@ on:
   push:
     paths:
       - ".github/workflows/guard-full-three-languages.yml"
+      - "tests/test_english.py"
+      - "tests/test_chinese.py"
+      - "tests/test_korean.py"
+      - "tests/eval_core.py"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +20,7 @@ jobs:
       matrix:
         language: [korean, chinese, english]
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       NCP_API_KEY: ${{ secrets.NCP_API }}
       NCP_API_V2: ${{ secrets.NCP_API_V2 }}
@@ -34,9 +38,9 @@ jobs:
           python tests/test_english.py --check
           python tests/test_chinese.py --check
           python tests/test_korean.py --check
-      - name: Benchmark all 30 cases with integrated and Qwen baseline
+      - name: Benchmark all 100 cases with integrated and Qwen baseline
         run: |
-          python tests/test_${{ matrix.language }}.py --limit 30 --models integrated,qwen_primary --parallel-trials 0
+          python tests/test_${{ matrix.language }}.py --limit 100 --models integrated,qwen_primary --parallel-trials 0
       - name: Store model decisions and error cases
         if: always()
         uses: actions/upload-artifact@v4
