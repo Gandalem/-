@@ -1,0 +1,33 @@
+name: NCP Guard API Contract Probe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tests/probe_guard_apis.py"
+      - ".github/workflows/ncp-guard-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NCP_API_V2: ${{ secrets.NCP_API_V2 }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Discover request and response shape
+        run: python tests/probe_guard_apis.py
+      - name: Upload sanitized report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guard-api-contract-probe
+          path: results/guard_probe.json
+          if-no-files-found: warn
