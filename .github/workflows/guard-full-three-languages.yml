@@ -1,0 +1,46 @@
+name: Guard full English Chinese Korean evaluation
+on:
+  push:
+    paths:
+      - ".github/workflows/guard-full-three-languages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-evaluation:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        language: [korean, chinese, english]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NCP_API_KEY: ${{ secrets.NCP_API }}
+      NCP_API_V2: ${{ secrets.NCP_API_V2 }}
+      NCP_GUARD_TIMEOUT: "60"
+      NCP_TIMEOUT: "60"
+      CLAUDE_ENABLED: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate all three language test cases offline
+        run: |
+          python tests/test_english.py --check
+          python tests/test_chinese.py --check
+          python tests/test_korean.py --check
+      - name: Benchmark all 30 cases with integrated and Qwen baseline
+        run: |
+          python tests/test_${{ matrix.language }}.py --limit 30 --models integrated,qwen_primary --parallel-trials 0
+      - name: Store model decisions and error cases
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-language-${{ matrix.language }}
+          path: results/guard_${{ matrix.language }}.json
+          if-no-files-found: warn
